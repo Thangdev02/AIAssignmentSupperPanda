@@ -11,7 +11,7 @@ import google.generativeai as genai
 load_dotenv()
 
 # Lấy key từ .env (khuyến khích), nếu không có thì mới dùng key mặc định (dev only)
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY", "AIzaSyCs1UDQyjMEQ2mL86hTw8GAAQLZuQW4Wdw"))
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY", "AIzaSyBRXcQXNaA-qoEjaBuBhqOf2-V3NtwIESA"))
 app = FastAPI(title="HSK Essay Evaluation API – Chuẩn giám khảo SuperPanda")
 
 app.add_middleware(
@@ -49,6 +49,8 @@ def evaluate_with_ai(assignment: str, essay: str):
     prompt = f"""
 Bạn là giám khảo chấm thi HSK chính thức (HSK3–HSK6) của SuperPanda.
 Hãy chấm bài viết theo thang điểm 100, chia thành 5 tiêu chí sau. Mỗi tiêu chí chấm nội bộ 1–5 điểm (theo bảng chi tiết dưới đây), sau đó nhân 4 để ra 0–20 điểm. Tổng điểm = tổng 5 tiêu chí.
+Nếu bài viết lạc đề một phần: trừ 10–40 điểm (tùy mức độ) từ tổng điểm.
+Nếu bài lạc đề nghiêm trọng: tổng điểm tối đa chỉ được 10/100, bất kể các tiêu chí khác.
 
 === TIÊU CHÍ CHI TIẾT (theo chuẩn chấm HSK thực tế) ===
 
