@@ -89,6 +89,16 @@ Nếu bài lạc đề nghiêm trọng: tổng điểm tối đa chỉ được 
    • 2 điểm (Yếu): Quá ngắn (<50% độ dài) hoặc quá dài, sai nhiều chữ (≥5), dấu câu lộn xộn.
    • 1 điểm (Kém): Gần như bỏ giấy trắng, chỉ vài chữ hoặc viết không đọc được.
 
+=== QUY TẮC XỬ LÝ LẠC ĐỀ ===
+• Nếu bài viết lạc đề một phần:
+    - Chấm từng tiêu chí bình thường.
+    - Sau cùng trừ 10–40 điểm từ tổng điểm.
+
+• Nếu bài viết lạc đề nghiêm trọng:
+    - Các tiêu chí content, coherence = 0.
+    - grammar, vocabulary, format vẫn chấm nhưng bị giới hạn để tổng_score ≤ 10.
+    - total_score không được vượt 10 trong mọi trường hợp.
+
 === YÊU CẦU TRẢ VỀ JSON CHÍNH XÁC ===
 {{
   "content": số (0-20),
