@@ -1,3 +1,4 @@
+# main.py
 import json
 import re
 import os
@@ -7,16 +8,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import google.generativeai as genai
 
-# 🔹 Load biến môi trường
 load_dotenv()
 
-# 🔹 Cấu hình Gemini
+# Lấy key từ .env (khuyến khích), nếu không có thì mới dùng key mặc định (dev only)
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY", "AIzaSyCs1UDQyjMEQ2mL86hTw8GAAQLZuQW4Wdw"))
+app = FastAPI(title="HSK Essay Evaluation API – Chuẩn giám khảo SuperPanda")
 
-# 🔹 Khởi tạo FastAPI
-app = FastAPI(title="IELTS Essay Evaluation API")
-
-# 🔹 Cấu hình CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -24,120 +21,139 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 🔹 Model dữ liệu request
+# Request
 class EssayRequest(BaseModel):
     assignment: str
     essay: str
 
-# 🔹 Hàm làm sạch HTML
-def sanitize_text(text: str) -> str:
-    text = re.sub(r"<[^>]*>", "", text)
-    return text.strip()
+# Response – để Swagger hiển thị đúng cấu trúc
+class EvaluationResponse(BaseModel):
+    content: int
+    grammar: int
+    vocabulary: int
+    coherence: int
+    format: int
+    total_score: int
+    topic_matching: str
+    feedback: str
 
-# 🔹 Hàm gọi Gemini để phân tích và chấm điểm bài viết theo IELTS
+def sanitize_text(text: str) -> str:
+    return re.sub(r"<[^>]*>", "", text).strip()
+
+def contains_non_chinese(text: str) -> bool:
+    pattern = re.compile(r"[^\u4e00-\u9fff\u3000-\u303F，。！？；：“”‘’…\s\n\r]")
+    return bool(pattern.search(text))
+
 def evaluate_with_ai(assignment: str, essay: str):
     model = genai.GenerativeModel("gemini-2.0-flash")
-
     prompt = f"""
-    You are an IELTS Writing examiner. Please evaluate the candidate's essay strictly following the official IELTS Writing Band Descriptors.
+Bạn là giám khảo chấm thi HSK chính thức (HSK3–HSK6) của SuperPanda.
+Hãy chấm bài viết theo thang điểm 100, chia thành 5 tiêu chí sau. Mỗi tiêu chí chấm nội bộ 1–5 điểm (theo bảng chi tiết dưới đây), sau đó nhân 4 để ra 0–20 điểm. Tổng điểm = tổng 5 tiêu chí.
 
-    The evaluation must be based on the following four criteria:
-    1️⃣ Task Achievement (TA): Does the essay fully address all parts of the task and develop ideas logically and relevantly to the question?
-    2️⃣ Coherence and Cohesion (CC): Is the essay well organized with clear paragraphing, logical flow, and appropriate cohesive devices?
-    3️⃣ Lexical Resource (LR): Is there a wide range of vocabulary used accurately, naturally, and appropriately?
-    4️⃣ Grammatical Range and Accuracy (GRA): Does the essay use a range of sentence structures accurately and effectively with minimal errors?
+=== TIÊU CHÍ CHI TIẾT (theo chuẩn chấm HSK thực tế) ===
 
-    You must:
-    - Give a separate band score (0–9, may include .5) for each of the 4 criteria above.
-    - Provide an "overall_score" that is the average of the 4 criteria.
-    - Include a short "task_relevance" field commenting on how well the essay answers the given assignment.
+1. Nội dung
+   • 5 điểm (Xuất sắc): Hoàn toàn bám sát chủ đề, đầy đủ mọi ý chính và ý phụ, nội dung phong phú, có chi tiết cụ thể, đúng hoàn toàn yêu cầu đề. Không lạc đề, không thiếu thông tin quan trọng.
+   • 4 điểm (Tốt): Bám sát đề, có hầu hết ý cần thiết, chỉ thiếu vài chi tiết nhỏ không quan trọng, vẫn truyền tải đầy đủ thông điệp.
+   • 3 điểm (Trung bình): Đúng hướng chung nhưng sơ sài, bỏ sót một số ý quan trọng hoặc chưa giải thích rõ, người đọc vẫn hiểu nhưng thấy thiếu.
+   • 2 điểm (Yếu): Thiếu nhiều ý quan trọng, có phần lệch đề, thông tin mơ hồ, nghèo nàn ý tưởng.
+   • 1 điểm (Kém): Lạc đề hoàn toàn hoặc nội dung cực kỳ ít ỏi (vài câu chung chung không liên quan).
 
-    Return the result strictly as valid JSON only:
-    {{
-      "task_achievement": number,
-      "coherence_and_cohesion": number,
-      "lexical_resource": number,
-      "grammatical_range_and_accuracy": number,
-      "overall_score": number,
-      "task_relevance": string,
-      "feedback": string
-    }}
+2. Ngữ pháp
+   • 5 điểm (Xuất sắc): Không lỗi ngữ pháp nào. Sử dụng chính xác, đa dạng các cấu trúc phức hợp phù hợp cấp độ, câu văn tự nhiên.
+   • 4 điểm (Tốt): Chỉ 1-2 lỗi rất nhỏ (thiếu giới từ, trật tự nhẹ), không ảnh hưởng nghĩa.
+   • 3 điểm (Trung bình): Có một số lỗi (quên “了”, nhầm vị trí “也/都”, sai thì…), vẫn hiểu được ý chính nhưng chất lượng giảm.
+   • 2 điểm (Yếu): Nhiều lỗi nghiêm trọng, ảnh hưởng hiểu bài, phải đoán nghĩa.
+   • 1 điểm (Kém): Sai ngữ pháp nặng nề khắp bài, hầu như không hiểu được.
 
-    IELTS Band Descriptors summary:
-    - Band 9: Expert user, fully addresses all task parts, fluent and precise.
-    - Band 8: Very good user, rare inaccuracies, well-developed arguments.
-    - Band 7: Good user, occasional inaccuracy, clear progression of ideas.
-    - Band 6: Competent user, some errors but generally effective.
-    - Band 5: Modest user, limited flexibility, frequent errors.
-    - Band 4–1: Basic or minimal ability in written English.
+3. Từ vựng
+   • 5 điểm (Xuất sắc): Phong phú, chính xác tuyệt đối, dùng đủ và đúng vị trí các từ yêu cầu (nếu có từ gợi ý), không có 错别字.
+   • 4 điểm (Tốt): Đa dạng, có thể 1-2 lỗi chữ hoặc chọn từ chưa chuẩn nhất nhưng không gây hiểu lầm.
+   • 3 điểm (Trung bình): Vốn từ cơ bản đủ dùng, hơi đơn điệu, có vài lỗi từ vựng/chính tả nhẹ (1-3 chữ sai).
+   • 2 điểm (Yếu): Từ vựng hạn chế, lặp nhiều, sai nghĩa nhiều từ hoặc sai ≥4 chữ Hán.
+   • 1 điểm (Kém): Gần như không đủ từ để diễn đạt, nhiều chữ sai nghiêm trọng hoặc chèn tiếng nước ngoài.
 
-    IELTS Writing Task Assignment:
-    \"\"\"{assignment}\"\"\"
+4. Mạch lạc
+   • 5 điểm (Xuất sắc): Rất mạch lạc, logic chặt chẽ, bố cục hợp lý (mở-thân-kết), dùng từ nối tự nhiên, trôi chảy như bài mẫu.
+   • 4 điểm (Tốt): Nhìn chung mạch lạc, chỉ vài chỗ chuyển ý hơi đột ngột hoặc thiếu từ nối nhẹ.
+   • 3 điểm (Trung bình): Có bố cục cơ bản nhưng liên kết yếu, ý sắp xếp chưa hợp lý, đọc vẫn theo dõi được nhưng không mượt.
+   • 2 điểm (Yếu): Rời rạc, logic lỏng lẻo, chuyển ý đột ngột, thiếu từ nối nghiêm trọng.
+   • 1 điểm (Kém): Hỗn loạn hoàn toàn, ý nhảy lung tung, không có cấu trúc.
 
-    Candidate's Essay:
-    \"\"\"{essay}\"\"\"
-    """
+5. Trình bày & Hình thức
+   • 5 điểm (Xuất sắc): Đúng 100% độ dài yêu cầu, bố cục rõ ràng (có đoạn, có tiêu đề nếu cần), chữ sạch đẹp, không lỗi chính tả, dấu câu chuẩn.
+   • 4 điểm (Tốt): Độ dài chênh ≤10%, có thể 1-2 lỗi chữ/dấu câu nhỏ, bố cục tốt.
+   • 3 điểm (Trung bình): Độ dài ngắn >10% nhưng ≥50%, hoặc có 2-4 lỗi chữ/dấu câu, chưa tách đoạn rõ.
+   • 2 điểm (Yếu): Quá ngắn (<50% độ dài) hoặc quá dài, sai nhiều chữ (≥5), dấu câu lộn xộn.
+   • 1 điểm (Kém): Gần như bỏ giấy trắng, chỉ vài chữ hoặc viết không đọc được.
+
+=== YÊU CẦU TRẢ VỀ JSON CHÍNH XÁC ===
+{{
+  "content": số (0-20),
+  "grammar": số (0-20),
+  "vocabulary": số (0-20),
+  "coherence": số (0-20),
+  "format": số (0-20),
+  "total_score": số (0-100),
+  "topic_matching": "Rất sát đề" | "Khá sát đề" | "Lạc đề một phần" | "Lạc đề nghiêm trọng",
+  "feedback": "Nhận xét chi tiết bằng tiếng Việt, 150-350 chữ, nêu rõ điểm mạnh và điểm cần cải thiện từng tiêu chí"
+}}
+
+ĐỀ BÀI:
+\"\"\"{assignment}\"\"\"
+
+BÀI LÀM:
+\"\"\"{essay}\"\"\"
+
+Trả về đúng JSON trên, không thêm bất kỳ chữ nào ngoài JSON.
+"""
 
     try:
         response = model.generate_content(prompt)
-        reply_text = response.text.strip()
+        text = response.text.strip()
 
-        try:
-            result = json.loads(reply_text)
-        except json.JSONDecodeError:
-            start = reply_text.find("{")
-            end = reply_text.rfind("}")
-            if start != -1 and end != -1:
-                json_text = reply_text[start:end + 1]
-                result = json.loads(json_text)
-            else:
-                raise ValueError("Model did not return valid JSON.")
+        # Loại bỏ code block nếu có
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1] if "\n" in text else text
+        if text.endswith("```"):
+            text = text.rsplit("\n", 1)[0] if "\n" in text else text
+        text = text.strip()
 
-        required_keys = [
-            "task_achievement",
-            "coherence_and_cohesion",
-            "lexical_resource",
-            "grammatical_range_and_accuracy",
-            "overall_score",
-            "task_relevance",
-            "feedback"
-        ]
-        for key in required_keys:
-            result.setdefault(key, "Missing")
+        result = json.loads(text)
+
+        # Đảm bảo đủ key + ép kiểu số
+        keys = ["content","grammar","vocabulary","coherence","format","total_score"]
+        for k in keys:
+            result[k] = int(result.get(k, 0))
+        result.setdefault("topic_matching", "Không xác định")
+        result.setdefault("feedback", "Không có nhận xét")
 
         return result
 
     except Exception as e:
         return {
-            "task_achievement": 0,
-            "coherence_and_cohesion": 0,
-            "lexical_resource": 0,
-            "grammatical_range_and_accuracy": 0,
-            "overall_score": 0,
-            "task_relevance": f"❌ Error during evaluation: {str(e)}",
-            "feedback": "Evaluation failed."
+            "content": 0, "grammar": 0, "vocabulary": 0,
+            "coherence": 0, "format": 0, "total_score": 0,
+            "topic_matching": "Lỗi hệ thống",
+            "feedback": f"Lỗi khi chấm bài: {str(e)[:200]}"
         }
 
-# 🔹 API endpoint chính
-@app.post("/api/evaluate")
+@app.post("/api/evaluate", response_model=EvaluationResponse)
 async def evaluate_essay(data: EssayRequest):
-    try:
-        assignment = sanitize_text(data.assignment)
-        essay = sanitize_text(data.essay)
-        result = evaluate_with_ai(assignment, essay)
-        return result
-    except Exception as e:
-        return {
-            "task_achievement": 0,
-            "coherence_and_cohesion": 0,
-            "lexical_resource": 0,
-            "grammatical_range_and_accuracy": 0,
-            "overall_score": 0,
-            "task_relevance": f"❌ Internal Server Error: {str(e)}",
-            "feedback": "Evaluation failed."
-        }
+    assignment = sanitize_text(data.assignment)
+    essay = sanitize_text(data.essay)
 
-# 🔹 Cho phép chạy local
+    if contains_non_chinese(essay):
+        return EvaluationResponse(
+            content=0, grammar=0, vocabulary=0, coherence=0, format=0,
+            total_score=0,
+            topic_matching="Không phải tiếng Trung",
+            feedback="Bài viết chứa ký tự Latin hoặc ngôn ngữ khác → chỉ chấp nhận tiếng Trung thuần túy → 0 điểm."
+        )
+
+    return evaluate_with_ai(assignment, essay)
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
